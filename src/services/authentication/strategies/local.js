@@ -2,13 +2,12 @@ const logger = require('winston');
 const promisify = require('es6-promisify');
 const errors = require('feathers-errors');
 const request = require('request-promise-native');
-const roles = require('../../user/roles');
 
 const AbstractLoginStrategy = require('./interface.js');
 
 const acceptedCredentials = [
-	{username: 'lehrer@schul-cloud.org', password: 'schulcloud', roles: [roles.roles['teacher']]},
-	{username: 'schueler@schul-cloud.org', password: 'schulcloud', roles: [roles.roles['student']]}
+	{username: 'lehrer@schul-cloud.org', password: 'schulcloud', roles: []},
+	{username: 'schueler@schul-cloud.org', password: 'schulcloud', roles: []}
 ];
 
 class LocalLoginStrategy extends AbstractLoginStrategy {
