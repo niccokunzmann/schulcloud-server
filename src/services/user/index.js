@@ -1,14 +1,14 @@
 'use strict';
 
-const service = require('feathers-mongoose');
-const user = require('./model');
+const service = require('feathers-knex');
 const hooks = require('./hooks');
 
 module.exports = function () {
 	const app = this;
 
 	const options = {
-		Model: user,
+		Model: app.db,
+		name: 'user',
 		paginate: {
 			default: 5,
 			max: 25

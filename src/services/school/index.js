@@ -1,19 +1,19 @@
 'use strict';
 
-const service = require('feathers-mongoose');
-const school = require('./model');
+const service = require('feathers-knex');
 const hooks = require('./hooks');
 
 module.exports = function() {
   const app = this;
 
-  const options = {
-    Model: school,
-    paginate: {
-      default: 5,
-      max: 25
-    }
-  };
+	const options = {
+		Model: app.db,
+		name: 'school',
+		paginate: {
+			default: 5,
+			max: 25
+		}
+	};
 
   // Initialize our service with any options it requires
   app.use('/schools', service(options));
