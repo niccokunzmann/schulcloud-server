@@ -8,6 +8,9 @@ module.exports = function (app) {
 
 	return function (error, req, res, next) {
 		if (error) {
+			if(app.get('logServiceErrors') === false && error.code < 500) {
+				return next(error);
+			}
 			const message = `${error.code ? `(${error.code}) ` : '' }Route: ${req.url} - ${error.message}`;
 
 			if (error.code === 404) {
