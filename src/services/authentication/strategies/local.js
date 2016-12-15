@@ -6,17 +6,20 @@ const request = require('request-promise-native');
 const AbstractLoginStrategy = require('./interface.js');
 
 const acceptedCredentials = [
-	{username: 'lehrer@schul-cloud.org', password: 'schulcloud'},
-	{username: 'schueler@schul-cloud.org', password: 'schulcloud'}];
+	{username: 'a', password: 'a', roles: ['administrator'], schoolId: '58515cbd593d430be5b89b9e'},
+	{username: 'lehrer@schul-cloud.org', password: 'schulcloud', roles: ['teacher']},
+	{username: 'schueler@schul-cloud.org', password: 'schulcloud', roles: ['student']}
+];
 
 class LocalLoginStrategy extends AbstractLoginStrategy {
 
 	login({ username, password}, system) {
-		if(acceptedCredentials.find((credentials) => {
+		let found = acceptedCredentials.findIndex((credentials) => {
 				return credentials.username == username
 					&& credentials.password == password;
-			})) {
-			return Promise.resolve({});
+			});
+		if(found > -1) {
+			return Promise.resolve(acceptedCredentials[found]);
 		} else {
 			return Promise.reject(new errors.NotAuthenticated('Wrong credentials'));
 		}

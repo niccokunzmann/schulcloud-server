@@ -1,9 +1,14 @@
 'use strict';
+const ltiTool = require('./ltiTool');
 const school = require('./school');
 const system = require('./system');
 const account = require('./account');
 const authentication = require('./authentication');
 const user = require('./user');
+const role = require('./role');
+
+const userGroup = require('./user-group');
+
 const mongoose = require('mongoose');
 
 module.exports = function () {
@@ -14,7 +19,10 @@ module.exports = function () {
 
     app.configure(authentication);
     app.configure(user);
+    app.configure(role);
     app.configure(account);
     app.configure(system);
     app.configure(school);
+	app.configure(userGroup);
+    app.configure(ltiTool);
 };

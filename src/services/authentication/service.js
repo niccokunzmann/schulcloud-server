@@ -59,9 +59,9 @@ module.exports = function(app) {
 			const jwtService = app.service('/auth/token');
 
 			if(!username) throw new errors.BadRequest('no username specified');
-			const credentials = {username: username, password: password};
+			const credentials = {username: username.trim(), password: password};
 
-			return accountService.find({query: {username: username, systemId: systemId}})
+			return accountService.find({query: {username: credentials.username, systemId: systemId}})
 				.then(result => findSingleAccount(result, systemId))
 				.then(account => {
 					if(!account) {
@@ -141,7 +141,8 @@ module.exports = function(app) {
 			.then(_client => {
 				client = _client;
 				logger.info(`Creating new account for user ${credentials.username} in system ${systemId}`);
-				return createUser();
+				const roles = _client.roles || ['user'];
+				return createUser(roles, _client.schoolId);
 			})
 			.then(user => {
 				return createAccount(systemId, user._id, credentials, client.token);
@@ -161,9 +162,9 @@ module.exports = function(app) {
 		return accountService.create(data);
 	}
 
-	function createUser() {
+	function createUser(roles, schoolId) {
 		const userService = app.service('/users');
-		return userService.create({});
+		return userService.create({roles: roles ? roles : [], schoolId: schoolId});
 	}
 
 
