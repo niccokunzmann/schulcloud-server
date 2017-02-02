@@ -1,4 +1,7 @@
 'use strict';
+const fileStorage = require('./fileStorage');
+const link = require('./link');
+const content = require('./content');
 const ltiTool = require('./ltiTool');
 const school = require('./school');
 const system = require('./system');
@@ -6,6 +9,7 @@ const account = require('./account');
 const authentication = require('./authentication');
 const user = require('./user');
 const role = require('./role');
+const helpers = require('./helpers');
 
 const userGroup = require('./user-group');
 
@@ -23,6 +27,10 @@ module.exports = function () {
     app.configure(account);
     app.configure(system);
     app.configure(school);
-	app.configure(userGroup);
+    app.configure(userGroup);
     app.configure(ltiTool);
+    app.configure(content);
+    app.configure(fileStorage);
+    app.configure(link);
+    app.configure(helpers);
 };
