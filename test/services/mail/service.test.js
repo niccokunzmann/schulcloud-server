@@ -38,7 +38,7 @@ describe('Mail Service', () => {
 			secrets = {};
 		}
 		app.set("secrets", secrets);
-		const MailService = require('../../../src/services/helpers/service')(app);
+		const MailService = require('../../../src/services/mail/service')(app);
 		app.use('/mails', new MailService());
 		mailService = app.service('/mails');
 
