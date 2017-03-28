@@ -5,7 +5,7 @@ const Schema = mongoose.Schema;
 
 const userSchema = new Schema({
 	roles: [{type: Schema.Types.ObjectId, ref: 'role'}],
-	email: {type: String, required: true},
+	email: {type: String, required: true, lowercase: true},
 
 	schoolId: {type: Schema.Types.ObjectId, ref: 'school', required: true},
 
@@ -16,6 +16,11 @@ const userSchema = new Schema({
 },{
 	timestamps: true
 });
+
+userSchema.methods.getPermissions = function() {
+	const roleModel = require('../role/model');
+	return roleModel.resolvePermissions(this.roles);
+};
 
 const userModel = mongoose.model('user', userSchema);
 module.exports = userModel;

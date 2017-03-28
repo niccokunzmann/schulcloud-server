@@ -5,10 +5,14 @@ const UserModel = require('../../user/model');
 const CourseModel = require('../../user-group/model').courseModel;
 const ClassModel = require('../../user-group/model').classModel;
 const aws = require('aws-sdk');
+const fs = require('fs');
+const path = require('path');
+const logger = require('winston');
 let awsConfig;
 try {
 	awsConfig = require("../../../../config/secrets.json").aws;
 } catch (e) {
+	logger.log('warn', 'The AWS config couldn\'t be read');
 	awsConfig = {};
 }
 
@@ -22,7 +26,7 @@ const AbstractFileStorageStrategy = require('./interface.js');
  */
 const verifyStorageContext = (userId, storageContext) => {
 	var values = storageContext.split("/");
-	if (values.length != 2) return Promise.reject(new errors.BadRequest("StorageContext is invalid"));
+	if (values.length < 2) return Promise.reject(new errors.BadRequest("StorageContext is invalid"));
 	var context = values[0];
 	switch (context) {
 		case 'users':
@@ -34,14 +38,22 @@ const verifyStorageContext = (userId, storageContext) => {
 					return Promise.resolve(res);
 				});
 		case 'courses':
-			return CourseModel.find({$and: [{userIds: userId}, {_id: values[1]}]}).exec().then(res => {
+			// checks, a) whether the user is student or teacher of the course, b) the course exists
+			return CourseModel.find({$and: [
+				{$or:[{userIds: userId}, {teacherIds: userId}]},
+				{_id: values[1]}
+			]}).exec().then(res => {
 				if (!res || res.length <= 0) {
 					return Promise.reject(new errors.Forbidden("You don't have permissions!"));
 				}
 				return Promise.resolve(res);
 			});
 		case 'classes':
-			return ClassModel.find({$and: [{userIds: userId}, {_id: values[1]}]}).exec().then(res => {
+			// checks, a) whether the user is student or teacher of the class, b) the class exists
+			return ClassModel.find({$and: [
+				{$or:[{userIds: userId}, {teacherIds: userId}]},
+				{_id: values[1]}
+			]}).exec().then(res => {
 				if (!res || res.length <= 0) {
 					return Promise.reject(new errors.Forbidden("You don't have permissions!"));
 				}
@@ -53,6 +65,7 @@ const verifyStorageContext = (userId, storageContext) => {
 };
 
 const createAWSObject = (schoolId) => {
+	if(!awsConfig.endpointUrl) throw new Error('AWS integration is not configured on the server');
 	var config = new aws.Config(awsConfig);
 	config.endpoint = new aws.Endpoint(awsConfig.endpointUrl);
 	let bucketName = `bucket-${schoolId}`;
@@ -60,19 +73,91 @@ const createAWSObject = (schoolId) => {
 	return {s3: s3, bucket: bucketName};
 };
 
-const getFileMetadata = (awsObjects, bucketName, s3) => {
+/**
+ * split files-list in files, that are in current directory, and the sub-directories
+ * @param data is the files-list
+ */
+const splitFilesAndDirectories = (storageContext, data) => {
+	let files = [];
+	let directories = [];
+
+	// gets name of current directory
+	let values = storageContext.split("/").filter((v, index) => {
+		return v && index > 1;
+	});
+	let currentDir = values.join("/");
+	let currentDirRegEx = new RegExp("^(\/|)" + currentDir + '(\/|)', "i");
+
+	data.forEach(entry => {
+		if(!entry.path.match(currentDirRegEx)) return;
+		const relativePath = entry.path.replace(currentDirRegEx, '');
+
+		if(relativePath === '') {
+			files.push(entry);
+		} else {
+			directories.push(relativePath.split("/")[0]);
+		}
+	});
+
+
+
+	// delete duplicates in directories
+	let withoutDuplicates = [];
+	directories.forEach(d => {
+		if (withoutDuplicates.indexOf(d) == -1) withoutDuplicates.push(d);
+	});
+
+	// remove .scfake fake file
+	files = files.filter(f => f.name != ".scfake");
+
+	return {
+		files: files,
+		directories: withoutDuplicates.map(v => {
+			return {
+				name: v
+			};
+		})
+	};
+};
+
+const getFileMetadata = (storageContext, awsObjects, bucketName, s3) => {
 	const headObject = promisify(s3.headObject, s3);
-	return Promise.all(awsObjects.map((object) => headObject({Bucket: bucketName, Key: object.Key})))
-		.then((array) => {
-			return array.map(object => {
+	const _getPath = (path) => {
+		if (!path) {
+			return "/";
+		}
+
+		// remove first and second directory from storageContext because it's just meta
+		return `/${path.split("/").filter((v, index) => index > 1).join("/")}`;
+	};
+
+	const _getFileName = (path) => {
+		if (!path) {
+			return "";
+		}
+
+		// a file's name is in the last part of the path
+		let values = path.split("/");
+		return values[values.length - 1];
+	};
+
+	return Promise.all(awsObjects.map((object) => {
+
+		return headObject({Bucket: bucketName, Key: object.Key})
+			.then(res => {
 				return {
-					name: object.Metadata.name,
-					lastModified: object.LastModified,
-					size: object.ContentLength,
-					type: object.ContentType,
-					thumbnail: object.Metadata.thumbnail
+					key: object.Key,
+					name: _getFileName(object.Key),
+					path: _getPath(res.Metadata.path),
+					lastModified: res.LastModified,
+					size: res.ContentLength,
+					type: res.ContentType,
+					thumbnail: res.Metadata.thumbnail
 				};
-			});
+		});
+	}))
+		.then(data => {
+			return splitFilesAndDirectories(storageContext, data);
 		});
 };
 
@@ -98,8 +183,14 @@ class AWSS3Strategy extends AbstractFileStorageStrategy {
 				if (!result || !result.schoolId) return Promise.reject(errors.NotFound("User not found"));
 
 				var awsObject = createAWSObject(result.schoolId);
-				return promisify(awsObject.s3.listObjectsV2, awsObject.s3)({Bucket: awsObject.bucket, Prefix: storageContext})
-					.then(res => Promise.resolve(getFileMetadata(res.Contents, awsObject.bucket, awsObject.s3)));
+				const params = {
+					Bucket: awsObject.bucket,
+					Prefix: storageContext
+				};
+				return promisify(awsObject.s3.listObjectsV2, awsObject.s3)(params)
+					.then(res => {
+						return Promise.resolve(getFileMetadata(storageContext, res.Contents, awsObject.bucket, awsObject.s3));
+					});
 			});
 	}
 
@@ -146,12 +237,70 @@ class AWSS3Strategy extends AbstractFileStorageStrategy {
 						url: res,
 						header: {
 							"Content-Type": fileType,
+							"x-amz-meta-path": storageContext,
 							"x-amz-meta-name": fileName,
 							"x-amz-meta-thumbnail": "https://schulcloud.org/images/login-right.png"
 						}
 					}));
 			});
 		});
+	}
+
+	createDirectory(userId, storageContext, dirName) {
+		if (!userId || !storageContext || !dirName) return Promise.reject(new errors.BadRequest('Missing parameters'));
+		return verifyStorageContext(userId, storageContext)
+			.then(res => {
+				return UserModel.findById(userId).exec().then(result => {
+					if (!result || !result.schoolId) return Promise.reject(errors.NotFound("User not found"));
+
+					const awsObject = createAWSObject(result.schoolId);
+					const dirPath = `${storageContext}/${dirName}`;
+					var fileStream = fs.createReadStream(path.join(__dirname, '..', 'resources', '.scfake'));
+					let params = {
+						Bucket: awsObject.bucket,
+						Key: `${dirPath}/.scfake`,
+						Body: fileStream,
+						Metadata: {
+							path: dirPath,
+							name: '.scfake'
+						}
+					};
+
+					return promisify(awsObject.s3.putObject, awsObject.s3)(params);
+				});
+			});
+	}
+
+	deleteDirectory(userId, storageContext) {
+		if (!userId || !storageContext) return Promise.reject(new errors.BadRequest('Missing parameters'));
+		return verifyStorageContext(userId, storageContext)
+			.then(res => UserModel.findById(userId).exec())
+			.then(result => {
+				if (!result || !result.schoolId) return Promise.reject(errors.NotFound("User not found"));
+				const awsObject = createAWSObject(result.schoolId);
+				const s3 = awsObject.s3;
+				const params = {
+					Bucket: awsObject.bucket,
+					Prefix: storageContext
+				};
+				return this._deleteAllInDirectory(awsObject, params);
+			});
+	}
+
+	_deleteAllInDirectory(awsObject, params) {
+		return promisify(awsObject.s3.listObjectsV2, awsObject.s3)(params)
+			.then(data => {
+				if (data.Contents.length == 0) throw new Error(`Invalid Prefix ${params.Prefix}`); // there should always be at least the .scfake file
+
+				const deleteParams = {Bucket: params.Bucket, Delete: {}};
+				deleteParams.Delete.Objects = data.Contents.map(c => ({Key: c.Key}));
+
+				return promisify(awsObject.s3.deleteObjects, awsObject.s3)(deleteParams);
+			})
+			.then(deletionData => {
+				if (deletionData.Deleted.length == 1000) return this._deleteAllInDirectory(awsObject, params);	// AWS S3 returns only 1000 items at once
+				else return Promise.resolve(deletionData);
+			});
 	}
 }
 
